@@ -31,7 +31,7 @@ def simulatedAnnealing(state):
   T = 1
   cont = 0
   current = state
-  while T > 0:
+  while T > 0 and calculateObjective(current)!=0:
     neighbour = getRandomNeighbour(current)
     delta_e = calculateObjective(current)-calculateObjective(neighbour)
     if (delta_e > 0) or (random.uniform(0,1) < math.exp(delta_e / T)):
