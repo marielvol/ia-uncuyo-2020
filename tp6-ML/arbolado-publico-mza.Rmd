@@ -1,0 +1,237 @@
+---
+title: "Inclinación del Arbolado Público en Mendoza"
+output: html_notebook
+---
+#Libraries
+```{r}
+# For manipulating the datasets
+library(dplyr)
+library(readr)
+# For plotting correlation matrix
+library(ggcorrplot)
+library(ggplot2)
+# Machine Learning library
+library(rpart)
+library(caret)
+```
+# GET THE DATA
+## Load the dataset
+```{r}
+trainset <- readr::read_csv("./arbolado-mza-dataset.csv",
+                              col_types = cols(
+  id = col_integer(),
+  especie = col_character(),
+  ultima_modificacion = col_character(),
+  altura = col_character(),
+  circ_tronco_cm = col_double(),
+  diametro_tronco = col_character(),
+  long = col_double(),
+  lat = col_double(),
+  seccion = col_integer(),
+  nombre_seccion = col_character(),
+  area_seccion = col_double(),
+  inclinacion_peligrosa = col_integer()
+))
+
+trainset<-trainset %>% mutate(inclinacion_peligrosa=ifelse(inclinacion_peligrosa=='1','si','no'))
+```
+## Analize the dataset
+#Distribución de la inclinación peligrosa
+```{r}
+trainset %>%  group_by(inclinacion_peligrosa) %>% summarise(total=n())
+```
+#Inclinación por sección
+```{r}
+trainset_seccion_inclinacion<-trainset %>%  group_by(seccion,inclinacion_peligrosa) %>% summarise(total=n())
+trainset_seccion_inclinacion
+
+#Visualización
+ggplot(trainset)+
+  geom_bar(aes(x=as.factor(inclinacion_peligrosa),fill=as.factor(inclinacion_peligrosa)   ))+
+  theme_bw()+
+  facet_wrap(~seccion)
+```
+#Inclinación por especie
+```{r}
+trainset_especie_inclinacion<-trainset %>%  group_by(especie,inclinacion_peligrosa) %>% summarise(total=n())
+trainset_especie_inclinacion
+
+#Visualización
+ggplot(trainset)+
+  geom_bar(aes(x=as.factor(inclinacion_peligrosa),fill=as.factor(inclinacion_peligrosa)   ))+
+  theme_bw()+
+  facet_wrap(~especie)# Aca estamos indicando que queremos que diferencie por especie
+```
+# CLEAN, PREPARE & MANIPULATE THE DATA
+```{r}
+##Inclinación peligrosa as factor
+trainset$inclinacion_peligrosa <-as.factor(trainset$inclinacion_peligrosa)
+##Eliminate some variables
+trainset <- trainset %>% select(-ultima_modificacion,-nombre_seccion,-area_seccion)
+```
+```{r}
+pp <- trainset %>% group_by(especie) %>% summarise(total = n()) %>% filter(total > 1)
+trainset <- trainset %>% filter(especie %in% pp$especie)
+```
+```{r}
+names(trainset) %>% as.data.frame()
+```
+# TRAIN THE MODEL
+## Split train and test
+```{r}
+trainIndex <- createDataPartition(as.factor(trainset$inclinacion_peligrosa), p=0.70, list=FALSE)
+data_train <- trainset[ trainIndex,]
+data_test <-  trainset[-trainIndex,]
+colnames(data_train) <- make.names(colnames(data_train))
+colnames(data_test) <- make.names(colnames(data_test))
+```
+### Plot class distribution in train
+```{r}
+data_train  %>% group_by(inclinacion_peligrosa) %>% summarise(total=n()) %>%
+  ggplot()+
+  geom_col(aes(x=inclinacion_peligrosa,y=total,fill=inclinacion_peligrosa))+
+  theme_classic()
+```
+### Plot class distribution in test
+```{r}
+data_test  %>% group_by(inclinacion_peligrosa) %>% summarise(total=n()) %>%
+  ggplot()+
+  geom_col(aes(x=inclinacion_peligrosa,y=total,fill=inclinacion_peligrosa))+
+  theme_classic()
+```
+
+## Train model
+```{r}
+ctrl_fast <- trainControl(method="cv", 
+                     repeats=1,
+                     number=5, 
+                   #  summaryFunction=twoClassSummary,
+                     verboseIter=T,
+                     classProbs=F, #savePredictions = T,
+                     allowParallel = TRUE)
+```
+
+```{r}
+
+ctrl_fast$sampling<-"up"
+
+svmGrid <-  expand.grid(sigma= c(0.001,0.0001,0.00001), 
+                        C = c(1,2,4,8,16,32,64,80,100,120) 
+                        )
+
+#svmGrid <-  expand.grid(C= c(100), sigma = c(1))
+
+
+train_formula<-formula(inclinacion_peligrosa~.)
+rfFitupsam<- train(train_formula,
+               data = data_train,
+               #method = "rf",   # Radial kernel
+               #method = "xgbTree",
+               method = "rpart",
+               #tuneLength = 9,
+               #tuneGrid = svmGrid,
+               #preProcess=c("scale","center"),
+               #metric="ROC",
+               #weights = model_weights,
+               trControl = ctrl_fast)
+
+#plot(rfFitupsam)
+rfFitupsam
+#rfFitupsam$finalModel
+```
+# TEST THE DATA
+```{r}
+predsrfprobsamp=predict(rfFitupsam,data_test)
+# use for regresion
+cbind(predsrfprobsamp,data_test$inclinacion_peligrosa)
+#confusionMatrix(as.factor(predsrfprobsamp %>% round()),as.factor(data_test$inclinacion_peligrosa))
+
+confusionMatrix(predsrfprobsamp,as.factor(data_test$inclinacion_peligrosa))
+```
+#Load the dataset again
+```{r}
+trainset1 <- readr::read_csv("./arbolado-mza-dataset.csv",
+                              col_types = cols(
+  id = col_integer(),
+  especie = col_character(),
+  ultima_modificacion = col_character(),
+  altura = col_character(),
+  circ_tronco_cm = col_double(),
+  diametro_tronco = col_character(),
+  long = col_double(),
+  lat = col_double(),
+  seccion = col_integer(),
+  nombre_seccion = col_character(),
+  area_seccion = col_double(),
+  inclinacion_peligrosa = col_integer()
+))
+
+trainset1<-trainset1 %>% mutate(inclinacion_peligrosa=ifelse(inclinacion_peligrosa=='1','si','no'))
+trainset1 <- trainset1 %>% select(-diametro_tronco,-ultima_modificacion,-nombre_seccion,-area_seccion)
+trainset1$inclinacion_peligrosa <- as.factor(trainset1$inclinacion_peligrosa)
+
+```
+#Train the model again with all the data
+```{r}
+ctrl_fast <- trainControl(method="cv", 
+                     repeats=1,
+                     number=5, 
+                   #  summaryFunction=twoClassSummary,
+                     verboseIter=T,
+                     classProbs=F,
+                     allowParallel = TRUE)
+
+ctrl_fast$sampling<-"up"
+
+svmGrid <-  expand.grid(sigma= c(0.001,0.0001,0.00001), 
+                        C = c(1,2,4,8,16,32,64,80,100,120) 
+                        )
+
+train_formula<-formula(inclinacion_peligrosa~.)
+rfFitupsam<- train(train_formula,
+               data = trainset1,
+               #method = "rf",   # Radial kernel
+               #method = "xgbTree",
+               method = "rpart",
+               #tuneLength = 9,
+               #tuneGrid = svmGrid,
+               #preProcess=c("scale","center"),
+               #metric="ROC",
+               #weights = model_weights,
+               trControl = ctrl_fast)
+
+#plot(rfFitupsam)
+rfFitupsam
+#rfFitupsam$finalModel
+
+```
+#Load the data-test
+```{r}
+data_pred <-  readr::read_csv("./arbolado-mza-dataset-test.csv",col_types = cols(
+  id = col_integer(),
+  especie = col_character(),
+  ultima_modificacion = col_character(),
+  altura = col_character(),
+  circ_tronco_cm = col_double(),
+  diametro_tronco = col_character(),
+  long = col_double(),
+  lat = col_double(),
+  seccion = col_integer(),
+  nombre_seccion = col_character(),
+  area_seccion = col_double()
+))
+
+data_pred <- data_pred %>% select(-ultima_modificacion,-nombre_seccion,-area_seccion)
+```
+#Prdict the results
+```{r}
+pred=predict(rfFitupsam,data_pred)
+```
+#Save results
+```{r}
+pred_val = ifelse(pred=="si",1,0)
+submission<-data.frame(id=data_pred$id,inclinacion_peligrosa=pred_val)
+readr::write_csv(submission,"./arbolado-mza-dataset-envio-nuevo.csv")
+head(submission)
+```
+
